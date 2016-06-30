@@ -9,6 +9,7 @@ on ratings, genere, title etc.
     2. Path watch module. Generate meta whenever new content in existing dir
     is added.
     3. Movie suggestions based on most viewed movie by current user.
+    4. skip processed ones (cache)
 """
 import os,sys,time
 import json
@@ -74,6 +75,7 @@ class MovieMeta:
         
         #Constants
         self.SUBDIR_SEP = ","
+        self.SUBDIR_FILE = "subdir.txt"
         self.URL_TITLE = 'http://www.omdbapi.com/?t={0}'
         self.URL_TITLE_YEAR = 'http://www.omdbapi.com/?t={0}&y={1}'
         
@@ -91,15 +93,22 @@ class MovieMeta:
         self._processed = False
         if len(self.currentDir) == 0:
             self.currentDir = os.getcwd()
+        subdir = ''
+        if os.path.isfile(self.SUBDIR_FILE):
+            with open(self.SUBDIR_FILE) as f:subdir = f.readline()
+        self.subdir(subdir)
+
+        self.debug(log)
 
     def subdir(self, subdirs = ""):
         self.subdirs = str(subdirs).split(self.SUBDIR_SEP)
 
     def debug(self, log):
         self.makelog = log
-        FORMAT = '%(asctime)-8s %(levelname)s : %(message)s'
-        self.logger = logging.getLogger("moviemeta")
-        logging.basicConfig(filename='moviemeta.log',level=logging.DEBUG,format=FORMAT)
+        if log:
+            FORMAT = '%(asctime)-8s %(levelname)s : %(message)s'
+            self.logger = logging.getLogger("moviemeta")
+            logging.basicConfig(filename='moviemeta.log',level=logging.DEBUG,format=FORMAT)
 
     def makeJSON (self):
         for movieObj in self.movieArr:
@@ -144,7 +153,7 @@ class MovieMeta:
         self._process()
         return self.movieJSON if json else self.movieJsonArr
 
-    def writeFile(self,filename="metamovie.txt"):
+    def writeFile(self,filename="moviemeta.txt"):
         f = open(filename, "w")
         f.write(json.dumps(self.imdbJSON))
         f.close()
@@ -198,7 +207,8 @@ class MovieMeta:
         self._process()
             
         if not self.movieJsonArr:
-            print "No movies to fetch"
+            if self.makelog:
+                self.logger.info('No movies to fetch')
             return
 
         for movie in self.movieJsonArr:
@@ -248,39 +258,34 @@ class MovieMeta:
             IMDBResp["movieAwards"] = resp['Awards'].encode('utf-8').replace('"','\\"')
 
         return IMDBResp
-            
-def askDir():
-    currentDir = raw_input("Dir:")
-    currentDir = str(currentDir)
-    if len(currentDir) <= 0:
-        print "Please mention a directory \n"
-        askDir()
-    return currentDir
 
 if __name__ == "__main__":
 
     #Check if external arguments are passed
     parser = ArgumentParser(description='Movie meta generator')
     parser.add_argument("-d", help="Directory path")
-    parser.add_argument("-p", action='store_true', help="Use in parallel mode")
+    parser.add_argument("--log", action='store_true', help="log behaviour")
+    parser.add_argument("-s", action='store_true', help="Use in sequential mode")
     args = parser.parse_args()
 
     current_dir = ""
     if getattr(args, 'd') is not None:
         current_dir = str(getattr(args, 'd'))
 
-    parallel = getattr(args, 'p')
+    sequential = getattr(args, 's')
 
     #create a MovieMeta object to get movies from mentioned directory
     movies = MovieMeta( current_dir )
 
-    #For now, lets debug
-    movies.debug(True)
+    #Use logger? (True/False)
+    movies.debug(getattr(args, 'log'))
 
-    #Also set sub-directory filter, the walker wont take sub-directories as movies
-    movies.subdir("movie")
-
-    if parallel:
+    if sequential:
+        """
+        This method makes requests serially
+        """
+        movies.getIMDB()
+    else:
         """
         use this method to make parallel requests.
         5 concurrent requests are enough. Make it more if you have
@@ -299,11 +304,6 @@ if __name__ == "__main__":
         #Measure your elapsed time after all threads finished execution
         end_time = time.time() - start_time
         print "Finished in %.3f s" % end_time
-    else:
-        """
-        This method makes requests serially
-        """
-        movies.getIMDB()
 
     
     #Write the JSON string to file
@@ -311,5 +311,5 @@ if __name__ == "__main__":
 
     
     """At this point, you should have required JSON"""
-    print movies.getResult()
+    #print movies.getResult()
 
